@@ -138,6 +138,11 @@ class Evo_depth(nn.Module):
         for p in module.parameters():
             p.requires_grad = False
 
+    def _unfreeze_module(self, module: nn.Module, name: str):
+        print(f"Finetuning {name}...")
+        for p in module.parameters():
+            p.requires_grad = True
+
     def set_finetune_flags(self):
         config = self.config  
         if not config.get("finetune_vlm", False):
@@ -150,7 +155,11 @@ class Evo_depth(nn.Module):
         else:
             print("Finetuning Action Head...")
             
-        if not config.get("finetune_da3", False) and self.use_da3:
-            self._freeze_module(self.embedder.dpt_embedder, "DA3 Depth Embedder")
-        else:
-            print("Finetuning DA3 Depth Embedder...")
+        if self.use_da3:
+            self._unfreeze_module(self.embedder.dpt_linear_film, "DA3 FiLM Fuser")
+            if config.get("finetune_da3", False):
+                self._unfreeze_module(self.embedder.dpt_embedder, "DA3 Depth Embedder")
+            else:
+                self._freeze_module(self.embedder.dpt_embedder, "DA3 Depth Embedder")
+        elif config.get("finetune_da3", False):
+            print("Skipping DA3 finetuning because use_da3 is disabled.")
