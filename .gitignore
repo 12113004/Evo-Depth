@@ -1,7 +1,10 @@
 # Python / runtime cache
 __pycache__/
+**/__pycache__/
 *.py[cod]
+**/*.py[cod]
 *.pyo
+**/*.pyo
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
