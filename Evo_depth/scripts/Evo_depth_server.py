@@ -121,7 +121,10 @@ def infer_from_json_dict(data: dict, model, normalizer):
             action_mask=action_mask
         )
         action = action.reshape(1, -1, 24)
-        action = normalizer.denormalize_action(action[0])
+        if os.environ.get("EVO_DEPTH_RETURN_NORMALIZED_ACTIONS", "0") != "1":
+            action = normalizer.denormalize_action(action[0])
+        else:
+            action = action[0]
         return action.cpu().numpy().tolist()
 
 
@@ -155,7 +158,7 @@ if __name__ == "__main__":
         print(f"Evo_depth server running at ws://0.0.0.0:{port}")
         async with websockets.serve(
             lambda ws: handle_request(ws, model, normalizer),
-            "0.0.0.0", port, max_size=100_000_000
+            "0.0.0.0", port, max_size=100_000_000, ping_interval=None
         ):
             await asyncio.Future()
 

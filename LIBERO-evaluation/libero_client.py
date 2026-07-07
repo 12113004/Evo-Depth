@@ -9,10 +9,13 @@ import math
 import imageio
 import random
 import argparse
+
+os.environ.setdefault("MUJOCO_GL", "osmesa")
+os.environ.setdefault("PYOPENGL_PLATFORM", "osmesa")
+
 from tqdm import tqdm
 from libero.libero import benchmark, get_libero_path
 from libero.libero.envs import OffScreenRenderEnv
-os.environ["MUJOCO_GL"] = "osmes"
 
 LIBERO_DUMMY_ACTION = [0.0] * 6 + [0.0]
 
@@ -70,6 +73,13 @@ def get_args():
     )
     parser.add_argument("--log_file", type=str, default=None, help="Log file path")
     parser.add_argument("--video_log_dir", type=str, default=None, help="Video save directory")
+    parser.add_argument("--no_video", action="store_true", help="Disable per-episode video writing")
+    parser.add_argument(
+        "--task_indices",
+        type=str,
+        default=None,
+        help="Optional 1-based task ids or ranges to evaluate, e.g. '1,3,5-7'. Defaults to all tasks.",
+    )
 
     parsed = parser.parse_args()
 
@@ -91,6 +101,34 @@ def get_args():
         parsed.video_log_dir = f"video_log_file/{parsed.ckpt_name}"
 
     return parsed
+
+
+def parse_task_indices(spec: str, num_tasks: int):
+    if spec is None or spec.strip() == "":
+        return list(range(num_tasks))
+
+    task_ids = []
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            start_text, end_text = part.split("-", 1)
+            start = int(start_text)
+            end = int(end_text)
+            if start > end:
+                raise ValueError(f"Invalid descending task range: {part}")
+            task_ids.extend(range(start, end + 1))
+        else:
+            task_ids.append(int(part))
+
+    zero_based = []
+    for task_id in task_ids:
+        if task_id < 1 or task_id > num_tasks:
+            raise ValueError(f"Task id {task_id} out of range 1..{num_tasks}")
+        zero_based.append(task_id - 1)
+
+    return list(dict.fromkeys(zero_based))
 
 
 args = get_args()
@@ -185,93 +223,87 @@ async def run(SERVER_URL: str, max_steps: int = None, num_episodes: int = None, 
     benchmark_dict = benchmark.get_benchmark_dict()
     task_suite = benchmark_dict[task_suite_name]()
     num_tasks_in_suite = task_suite.n_tasks
+    task_indices = parse_task_indices(args.task_indices, num_tasks_in_suite)
 
     print(f"Numbers of tasks: {num_tasks_in_suite}")
+    print(f"Task indices to evaluate (1-based): {[idx + 1 for idx in task_indices]}")
 
     total_success = 0
     total_episodes = 0
     total_steps = 0
 
-    async with websockets.connect(SERVER_URL) as ws:
-        log.info(f"===========================Start task suite {task_suite_name}========================")
-        log.info(f"Horizon is {horizon}")
-        total_false = 0
-        for task_id in tqdm(
-            range(num_tasks_in_suite),
-            desc=f"[Suite {task_suite_name}] Tasks",
-            leave=True
+    log.info(f"===========================Start task suite {task_suite_name}========================")
+    log.info(f"Horizon is {horizon}")
+    total_false = 0
+    for task_id in tqdm(
+        task_indices,
+        desc=f"[Suite {task_suite_name}] Tasks",
+        leave=True
+    ):
+        task = task_suite.get_task(task_id)
+        initial_states = task_suite.get_task_init_states(task_id)
+        env, task_description = get_libero_env(task, resolution=448, seed=args.SEED)
+
+        log.info(f"\n========= Start Task {task_id+1}: {task_description} =========")
+
+        task_success = 0
+        task_episodes = min(num_episodes, len(initial_states))
+        rng = np.random.RandomState(args.SEED)
+
+        state_ids = rng.choice(
+            len(initial_states),
+            task_episodes,
+            replace=False
+        )
+        logging.info(f"Random selected episode indices for Task {task_id+1}: {state_ids}")
+        for ep in tqdm(
+            range(task_episodes),
+            desc=f"Task {task_id+1} Episodes",
+            leave=False
         ):
+            print(f"\n===== Task {task_id+1} | Episode {ep+1} =====")
+            episode_seed = args.SEED
 
+            env.seed(episode_seed)
+            np.random.seed(episode_seed)
+            random.seed(episode_seed)
 
-            
+            obs = env.reset()
 
-            task = task_suite.get_task(task_id)
-            initial_states = task_suite.get_task_init_states(task_id)
-            env, task_description = get_libero_env(task, resolution=448, seed=args.SEED)
+            state_id = state_ids[ep]
+            obs = env.set_init_state(initial_states[state_id])
+            env.sim.forward()
+            t = 0
+            while t < 10:
+                obs, reward, done, info = env.step(LIBERO_DUMMY_ACTION)
+                t += 1
 
-        
+            prompt = str(task_description)
+            print(prompt)
+            episode_done = False
+            max_step = 0
+            frames = []
 
-            log.info(f"\n========= Start Task {task_id+1}: {task_description} =========")
-
-            task_success = 0
-            task_episodes = min(num_episodes, len(initial_states))
-            rng = np.random.RandomState(args.SEED)
-
-            state_ids = rng.choice(
-                len(initial_states),   
-                task_episodes,         
-                replace=False
-            )
-            logging.info(f"Random selected episode indices for Task {task_id+1}: {state_ids}")
-            for ep in tqdm(
-                range(task_episodes),
-                desc=f"Task {task_id+1} Episodes",
-                leave=False
-            ):
-
-                print(f"\n===== Task {task_id+1} | Episode {ep+1} =====")
-                episode_seed = args.SEED  
-
-                env.seed(episode_seed)
-                np.random.seed(episode_seed)
-                random.seed(episode_seed)
-
-
-                obs = env.reset()
-                
-
-                state_id = state_ids[ep]
-                obs = env.set_init_state(initial_states[state_id])
-                env.sim.forward()
-                t = 0
-                while t < 10:
-                        obs, reward, done, info = env.step(LIBERO_DUMMY_ACTION)
-                        t += 1
-                        
-
-                prompt = str(task_description)
-                print(prompt)
-                episode_done = False
-                max_step = 0
-                frames = []
-
+            async with websockets.connect(
+                SERVER_URL,
+                max_size=200_000_000,
+                ping_interval=None,
+            ) as ws:
                 for step in range(max_steps):
                     max_step += 1
 
                     send_data = obs_to_json_dict(obs, prompt)
                     await ws.send(json.dumps(send_data))
-                    
 
                     result = await ws.recv()
                     try:
                         action_list = json.loads(result)
                         actions = np.array(action_list)
-                        
+
                     except Exception as e:
                         print(f"❌ Failed to parse action: {e}, content: {result}")
                         break
 
-                    
                     for i in range(horizon):
                         action = actions[i].tolist()
                         # print(action[:7])
@@ -279,9 +311,7 @@ async def run(SERVER_URL: str, max_steps: int = None, num_episodes: int = None, 
                             action[6] = -1
                         else:
                             action[6] = 1
-                        
-                        
-                       
+
                         try:
                             obs, reward, done, info = env.step(action[:7])
                         except ValueError as ve:
@@ -289,12 +319,12 @@ async def run(SERVER_URL: str, max_steps: int = None, num_episodes: int = None, 
                             episode_done = False
                             break
 
-                        
-                        frame = np.hstack([
-                            np.rot90(obs["agentview_image"], 2),
-                            np.rot90(obs["robot0_eye_in_hand_image"], 2)
-                        ])
-                        frames.append(frame)
+                        if not args.no_video:
+                            frame = np.hstack([
+                                np.rot90(obs["agentview_image"], 2),
+                                np.rot90(obs["robot0_eye_in_hand_image"], 2)
+                            ])
+                            frames.append(frame)
 
                         # print(f"[Step {step}] reward={reward:.2f}, done={done}")
                         if done:
@@ -307,28 +337,26 @@ async def run(SERVER_URL: str, max_steps: int = None, num_episodes: int = None, 
                     if episode_done:
                         break
 
-                # 保存视频（文件名带 task_id）
+            # 保存视频（文件名带 task_id）
+            if not args.no_video:
                 save_video(frames, f"task{task_id+1}_episode{ep+1}.mp4", fps=30, save_dir=f"{args.video_log_dir}/{task_suite_name}")
 
-                if episode_done:
-                    log.info(f"Task {task_id+1} | Episode {ep+1}: ✅ Success")
-                else:
-                    log.info(f"Task {task_id+1} | Episode {ep+1}: ❌ Fail")
-                    total_false+=1
-                    # if total_false>=11:
-                    #     break
-                
+            if episode_done:
+                log.info(f"Task {task_id+1} | Episode {ep+1}: ✅ Success")
+            else:
+                log.info(f"Task {task_id+1} | Episode {ep+1}: ❌ Fail")
+                total_false+=1
+                # if total_false>=11:
+                #     break
 
+        log.info(f"========= Task {task_id+1} Summary: {task_success}/{task_episodes} Success =========")
+        total_episodes += task_episodes
 
-            log.info(f"========= Task {task_id+1} Summary: {task_success}/{task_episodes} Success =========")
-            total_episodes += task_episodes
-            
-
-        # ======= 全部总结 =======
-        log.info("\n========= Overall Summary =========")
-        log.info(f"✅ Total Successful Episodes: {total_success}/{total_episodes}")
-        if total_episodes > 0:
-            log.info(f"Average Steps: {total_steps / total_episodes:.2f}")
+    # ======= 全部总结 =======
+    log.info("\n========= Overall Summary =========")
+    log.info(f"✅ Total Successful Episodes: {total_success}/{total_episodes}")
+    if total_episodes > 0:
+        log.info(f"Average Steps: {total_steps / total_episodes:.2f}")
 
 # ========= 启动入口 =========
 if __name__ == "__main__":

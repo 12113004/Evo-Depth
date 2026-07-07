@@ -1,4 +1,5 @@
 import math
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -306,8 +307,10 @@ class FlowmatchingActionHead(nn.Module):
 
     def get_action(self, fused_tokens: torch.Tensor, state: torch.Tensor = None, embodiment_id: torch.LongTensor = None, action_mask: torch.Tensor = None):
 
-        print(f"action_mask shape: {action_mask.shape if action_mask is not None else 'None'}")
-        print(f"one sample action_mask: {action_mask[0] if action_mask is not None else 'None'}")
+        debug_action = os.environ.get("EVO_DEPTH_DEBUG_ACTION", "0") == "1"
+        if debug_action:
+            print(f"action_mask shape: {action_mask.shape if action_mask is not None else 'None'}")
+            print(f"one sample action_mask: {action_mask[0] if action_mask is not None else 'None'}")
 
         B = fused_tokens.size(0)
         device = fused_tokens.device
@@ -331,8 +334,9 @@ class FlowmatchingActionHead(nn.Module):
             per_action_dim = action_dim_total
 
         action = (torch.rand(B, action_dim_total, device=device) * 2 - 1)
-        print(f"action shape: {action.shape}")
-        print(f"one sample action: {action[0]}")
+        if debug_action:
+            print(f"action shape: {action.shape}")
+            print(f"one sample action: {action[0]}")
 
         if self.horizon > 1:
             action_seq = action.view(B, self.horizon, per_action_dim)
@@ -342,8 +346,9 @@ class FlowmatchingActionHead(nn.Module):
 
         action_mask = action_mask.view(B, 1, per_action_dim).repeat(1,self.horizon,1)
 
-        print(f"action_mask: {action_mask}")
-        print(f"one sample action_mask: {action_mask[0]}")
+        if debug_action:
+            print(f"action_mask: {action_mask}")
+            print(f"one sample action_mask: {action_mask[0]}")
 
         if action_mask is not None:
             action_mask = action_mask.to(dtype=action_seq.dtype, device=action_seq.device)
@@ -351,8 +356,9 @@ class FlowmatchingActionHead(nn.Module):
             action_seq = action_seq * action_mask
         else:
             raise ValueError("action_mask must be provided for inference with flow matching.")
-        print(f"action shape: {action_seq.shape}")
-        print(f"one sample action: {action_seq[0]}")
+        if debug_action:
+            print(f"action shape: {action_seq.shape}")
+            print(f"one sample action: {action_seq[0]}")
 
         N = int(getattr(self.config, "num_inference_timesteps", 32))
         dt = 1.0 / N
@@ -412,4 +418,3 @@ class FlowmatchingActionHead(nn.Module):
     def dtype(self):
         
         return next(self.parameters()).dtype
-

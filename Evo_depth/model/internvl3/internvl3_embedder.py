@@ -12,6 +12,7 @@ from torchvision.transforms.functional import to_pil_image
 from typing import Union, List
 from torch import nn
 import logging
+import os
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
@@ -80,7 +81,7 @@ class InternVL3Embedder(nn.Module):
             model_name,
             torch_dtype=torch.bfloat16,
             trust_remote_code=True,
-            use_flash_attn=True,
+            use_flash_attn=os.environ.get("EVO_DEPTH_USE_FLASH_ATTN", "1") != "0",
             low_cpu_mem_usage=True,
             _fast_init=False,
         ).to(self.device) 

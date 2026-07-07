@@ -1,0 +1,60 @@
+# Python / runtime cache
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Local environments and editor state
+.env
+.env.*
+.venv/
+venv/
+conda-meta/
+.vscode/
+.idea/
+
+# OMX / local orchestration artifacts
+.omx/
+
+# Model weights and downloaded model artifacts
+checkpoints/
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.onnx
+*.engine
+
+# Hugging Face / dataset caches
+.cache/
+hf_cache/
+huggingface_cache/
+
+# External benchmark checkouts cloned during reproduction
+LIBERO-evaluation/LIBERO/
+LIBERO-PLUS-evaluation/LIBERO-plus/
+VLA-Arena-evaluation/VLA-Arena/
+
+# Benchmark outputs, videos, and temporary logs
+LIBERO-evaluation/log_file/
+LIBERO-evaluation/logs*/
+LIBERO-evaluation/**/videos/
+LIBERO-PLUS-evaluation/logs*/
+Metaworld-evaluation/metaworld_logs*/
+VLA-Arena-evaluation/logs/
+logs/
+*.log
+
+# Large local data products
+assets.zip
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.npz
+*.npy
+*.parquet
